@@ -34,14 +34,14 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Install Android 37 and matching NDK using runner SDK
+      - name: Install Android 36 and matching NDK using runner SDK
         run: |
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install "platforms;android-37" "build-tools;37.0.0" "ndk;28.2.13676358"
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
 
       - name: Fetch reviewed source at pinned commit
         run: |
@@ -52,6 +52,19 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           test "$(git -C upstream rev-parse HEAD)" = "aafb3c3638529a61ba94fe8de579097fbcfb6885"
           test -f upstream/LICENSE
+
+      - name: Compatibility patch for available Android SDK 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("upstream/app/build.gradle.kts")
+          text = path.read_text()
+          old = "compileSdk {\\n        version = release(37)\\n    }".replace("\\n", "\n")
+          assert old in text, "Pinned upstream build file changed; review needed"
+          text = text.replace(old, "compileSdk = 36", 1)
+          path.write_text(text)
+          PY
+          grep -q "compileSdk = 36" upstream/app/build.gradle.kts
 
       - name: Build debug APK from upstream source (models NOT bundled)
         working-directory: upstream

@@ -1,0 +1,92 @@
+name: POC Android ONNX Face Swap (source build)
+
+on:
+  push:
+    branches:
+      - experiment/onnx-face-swap-poc
+    paths:
+      - ".github/workflows/poc-onnx-faceswap.yml"
+      - "docs/onnx-poc.md"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/poc-onnx-faceswap.yml"
+      - "docs/onnx-poc.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-prototype:
+    name: Build offline ONNX photo face swap APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Face experiment branch
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Android Gradle Plugin 9)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Android 36 and matching NDK using runner SDK
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+
+      - name: Fetch reviewed source at pinned commit
+        run: |
+          mkdir -p upstream
+          git -C upstream init
+          git -C upstream remote add origin https://github.com/Parasaran-Python/android-face-fusion.git
+          git -C upstream fetch --depth=1 origin aafb3c3638529a61ba94fe8de579097fbcfb6885
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "aafb3c3638529a61ba94fe8de579097fbcfb6885"
+          test -f upstream/LICENSE
+
+      - name: Compatibility patch for available Android SDK 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("upstream/app/build.gradle.kts")
+          text = path.read_text()
+          old = "compileSdk {\\n        version = release(37)\\n    }".replace("\\n", "\n")
+          assert old in text, "Pinned upstream build file changed; review needed"
+          text = text.replace(old, "compileSdk = 36", 1)
+          path.write_text(text)
+          deps = Path("upstream/gradle/libs.versions.toml")
+          catalog = deps.read_text()
+          old_glide = 'glide = "5.0.9"'
+          assert old_glide in catalog, "Pinned Glide version changed; review needed"
+          deps.write_text(catalog.replace(old_glide, 'glide = "4.16.0"', 1))
+          PY
+          grep -q "compileSdk = 36" upstream/app/build.gradle.kts
+          grep -q 'glide = "4.16.0"' upstream/gradle/libs.versions.toml
+
+      - name: Build debug APK from upstream source (models NOT bundled)
+        working-directory: upstream
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify APK exists
+        run: |
+          test -s upstream/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum upstream/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-onnx-faceswap-photo-poc
+          path: upstream/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

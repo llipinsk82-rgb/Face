@@ -1,0 +1,6 @@
+{
+  "name": "FaceSwap Video",
+  "description": "Lokalna podmiana i nakładanie twarzy w materiałach wideo bez opłat i limitów długości.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

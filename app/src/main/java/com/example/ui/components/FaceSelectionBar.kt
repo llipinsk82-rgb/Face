@@ -45,8 +45,8 @@ import com.example.model.ReplacementFace
 import com.example.model.SwapConfig
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceCard
-import com.example.ui.theme.StudioCyan
-import com.example.ui.theme.StudioViolet
+import com.example.ui.theme.StudioPrimary
+import com.example.ui.theme.StudioSecondary
 
 @Composable
 fun FaceSelectionBar(
@@ -63,9 +63,9 @@ fun FaceSelectionBar(
   Surface(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = 16.dp, vertical = 6.dp)
+      .padding(horizontal = 16.dp, vertical = 4.dp)
       .testTag("face_selection_bar"),
-    shape = RoundedCornerShape(20.dp),
+    shape = RoundedCornerShape(16.dp),
     color = DarkSurfaceCard,
     border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
   ) {
@@ -79,10 +79,10 @@ fun FaceSelectionBar(
         verticalAlignment = Alignment.CenterVertically
       ) {
         Text(
-          text = "Tryb podmiany twarzy",
+          text = "Tryb podmiany:",
           style = MaterialTheme.typography.titleSmall,
           color = Color.White,
-          fontWeight = FontWeight.Bold
+          fontWeight = FontWeight.SemiBold
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -98,8 +98,8 @@ fun FaceSelectionBar(
               )
             },
             colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = StudioCyan,
-              selectedLabelColor = Color.Black
+              selectedContainerColor = StudioPrimary,
+              selectedLabelColor = Color(0xFF082F49)
             ),
             modifier = Modifier.testTag("mode_all_faces_button")
           )
@@ -116,7 +116,7 @@ fun FaceSelectionBar(
               )
             },
             colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = StudioViolet,
+              selectedContainerColor = StudioSecondary,
               selectedLabelColor = Color.White
             ),
             modifier = Modifier.testTag("mode_individual_faces_button")
@@ -147,10 +147,10 @@ fun FaceSelectionBar(
               modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
                 .clickable { onSelectFaceToMap(face.id) }
-                .background(if (isSelected) StudioViolet.copy(alpha = 0.2f) else Color.Transparent)
+                .background(if (isSelected) StudioSecondary.copy(alpha = 0.2f) else Color.Transparent)
                 .border(
                   width = if (isSelected) 2.dp else 1.dp,
-                  color = if (isSelected) StudioViolet else DarkBorder,
+                  color = if (isSelected) StudioSecondary else DarkBorder,
                   shape = RoundedCornerShape(12.dp)
                 )
                 .padding(8.dp)
@@ -173,7 +173,7 @@ fun FaceSelectionBar(
                   Icon(
                     Icons.Default.Person,
                     contentDescription = null,
-                    tint = StudioCyan,
+                    tint = StudioPrimary,
                     modifier = Modifier.size(24.dp)
                   )
                 }
@@ -183,7 +183,7 @@ fun FaceSelectionBar(
               Text(
                 text = "Osoba ${face.id + 1}",
                 fontSize = 11.sp,
-                color = if (isSelected) StudioViolet else Color.White,
+                color = if (isSelected) StudioSecondary else Color.White,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
               )
 
@@ -191,7 +191,7 @@ fun FaceSelectionBar(
                 Text(
                   text = assignedFace.name,
                   fontSize = 10.sp,
-                  color = StudioCyan,
+                  color = StudioPrimary,
                   maxLines = 1
                 )
               }
@@ -200,14 +200,14 @@ fun FaceSelectionBar(
         }
       }
 
-      Spacer(modifier = Modifier.height(12.dp))
+      Spacer(modifier = Modifier.height(10.dp))
 
       // Available Replacement Faces Carousel
       Text(
         text = if (swapConfig.isSingleForAll) {
-          "Wybierz maskę / twarz dla wszystkich:"
+          "Wybierz maskę / twarz:"
         } else {
-          "Maska dla: Osoba ${selectedFaceId + 1}:"
+          "Maska dla osoby ${selectedFaceId + 1}:"
         },
         fontSize = 12.sp,
         color = Color.LightGray
@@ -226,8 +226,8 @@ fun FaceSelectionBar(
             modifier = Modifier
               .clip(RoundedCornerShape(12.dp))
               .clickable { onAddNewFaceClick() }
-              .background(Color(0xFF1E2838))
-              .border(1.dp, StudioCyan.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+              .background(Color(0xFF1E293B))
+              .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
               .padding(8.dp)
               .testTag("add_custom_face_button")
           ) {
@@ -235,22 +235,22 @@ fun FaceSelectionBar(
               modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(StudioCyan.copy(alpha = 0.15f)),
+                .background(StudioPrimary.copy(alpha = 0.15f)),
               contentAlignment = Alignment.Center
             ) {
               Icon(
                 Icons.Default.Add,
                 contentDescription = "Dodaj twarz ze zdjęcia",
-                tint = StudioCyan,
-                modifier = Modifier.size(26.dp)
+                tint = StudioPrimary,
+                modifier = Modifier.size(24.dp)
               )
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
               text = "+ Własna",
               fontSize = 11.sp,
-              color = StudioCyan,
-              fontWeight = FontWeight.Bold
+              color = StudioPrimary,
+              fontWeight = FontWeight.Medium
             )
           }
         }
@@ -268,10 +268,10 @@ fun FaceSelectionBar(
             modifier = Modifier
               .clip(RoundedCornerShape(12.dp))
               .clickable { onChooseFaceForCurrent(face) }
-              .background(if (currentActive) StudioCyan.copy(alpha = 0.2f) else Color.Transparent)
+              .background(if (currentActive) StudioPrimary.copy(alpha = 0.15f) else Color.Transparent)
               .border(
                 width = if (currentActive) 2.dp else 1.dp,
-                color = if (currentActive) StudioCyan else DarkBorder,
+                color = if (currentActive) StudioPrimary else DarkBorder,
                 shape = RoundedCornerShape(12.dp)
               )
               .padding(8.dp)
@@ -294,13 +294,13 @@ fun FaceSelectionBar(
                 Box(
                   modifier = Modifier
                     .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.3f)),
+                    .background(Color.Black.copy(alpha = 0.35f)),
                   contentAlignment = Alignment.Center
                 ) {
                   Icon(
                     Icons.Default.CheckCircle,
                     contentDescription = null,
-                    tint = StudioCyan,
+                    tint = StudioPrimary,
                     modifier = Modifier.size(20.dp)
                   )
                 }
@@ -311,7 +311,7 @@ fun FaceSelectionBar(
             Text(
               text = face.name,
               fontSize = 11.sp,
-              color = if (currentActive) StudioCyan else Color.White,
+              color = if (currentActive) StudioPrimary else Color.White,
               fontWeight = if (currentActive) FontWeight.Bold else FontWeight.Normal
             )
           }

@@ -10,20 +10,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VideoFile
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -40,8 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.VideoInfo
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceCard
-import com.example.ui.theme.StudioCyan
-import com.example.ui.theme.StudioMint
+import com.example.ui.theme.StudioPrimary
 import java.util.Locale
 
 @Composable
@@ -51,16 +49,16 @@ fun VideoTimelineControls(
   isPlaying: Boolean,
   onTogglePlay: () -> Unit,
   onSeek: (Long) -> Unit,
-  onLoadDemoVideo: () -> Unit,
-  onPickNewVideo: () -> Unit,
+  onPickGalleryVideo: () -> Unit,
+  onPickSafVideo: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  val durationMs = (videoInfo?.durationMs ?: 5000L).coerceAtLeast(1000L)
+  val durationMs = (videoInfo?.durationMs ?: 0L).coerceAtLeast(1L)
 
   Surface(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = 16.dp, vertical = 6.dp)
+      .padding(horizontal = 16.dp, vertical = 4.dp)
       .testTag("video_timeline_controls"),
     shape = RoundedCornerShape(16.dp),
     color = DarkSurfaceCard,
@@ -77,16 +75,18 @@ fun VideoTimelineControls(
       ) {
         Text(
           text = formatTimestamp(currentTimeMs),
-          color = StudioCyan,
+          color = StudioPrimary,
           fontWeight = FontWeight.Bold,
           fontSize = 13.sp
         )
 
-        Text(
-          text = "Wideo: ${videoInfo?.width ?: 960}x${videoInfo?.height ?: 540} • Bez limitu długości",
-          color = Color.Gray,
-          fontSize = 11.sp
-        )
+        if (videoInfo != null) {
+          Text(
+            text = "${videoInfo.width}x${videoInfo.height} • ${if (videoInfo.isVertical) "Pionowe" else "Poziome"}${if (videoInfo.hasAudio) " • Dźwięk" else ""}",
+            color = Color.Gray,
+            fontSize = 11.sp
+          )
+        }
 
         Text(
           text = formatTimestamp(durationMs),
@@ -101,8 +101,8 @@ fun VideoTimelineControls(
           onSeek((fraction * durationMs).toLong())
         },
         colors = SliderDefaults.colors(
-          thumbColor = StudioCyan,
-          activeTrackColor = StudioCyan
+          thumbColor = StudioPrimary,
+          activeTrackColor = StudioPrimary
         ),
         modifier = Modifier.testTag("video_timeline_slider")
       )
@@ -116,7 +116,7 @@ fun VideoTimelineControls(
         // Step back 1 sec
         FilledIconButton(
           onClick = { onSeek((currentTimeMs - 1000L).coerceAtLeast(0L)) },
-          colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E2838)),
+          colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
           modifier = Modifier
             .size(42.dp)
             .testTag("btn_step_backward")
@@ -124,30 +124,30 @@ fun VideoTimelineControls(
           Icon(Icons.Default.FastRewind, contentDescription = "-1 sekunda", tint = Color.White)
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(18.dp))
 
         // Play / Pause button
         FilledIconButton(
           onClick = onTogglePlay,
-          colors = IconButtonDefaults.filledIconButtonColors(containerColor = StudioCyan),
+          colors = IconButtonDefaults.filledIconButtonColors(containerColor = StudioPrimary),
           modifier = Modifier
-            .size(54.dp)
+            .size(52.dp)
             .testTag("btn_toggle_play_pause")
         ) {
           Icon(
             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
             contentDescription = if (isPlaying) "Wstrzymaj" else "Odtwarzaj",
-            tint = Color.Black,
-            modifier = Modifier.size(32.dp)
+            tint = Color(0xFF082F49),
+            modifier = Modifier.size(30.dp)
           )
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(18.dp))
 
         // Step forward 1 sec
         FilledIconButton(
           onClick = { onSeek((currentTimeMs + 1000L).coerceAtMost(durationMs)) },
-          colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E2838)),
+          colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
           modifier = Modifier
             .size(42.dp)
             .testTag("btn_step_forward")
@@ -158,31 +158,35 @@ fun VideoTimelineControls(
 
       Spacer(modifier = Modifier.height(10.dp))
 
-      // Switch / Load video buttons
+      // Video Source Chooser Buttons
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
       ) {
         Button(
-          onClick = onPickNewVideo,
-          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A354A)),
+          onClick = onPickGalleryVideo,
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
           shape = RoundedCornerShape(10.dp),
           modifier = Modifier
             .weight(1f)
-            .testTag("btn_pick_new_video")
+            .testTag("btn_pick_gallery_video")
         ) {
-          Icon(Icons.Default.VideoFile, contentDescription = null, tint = StudioCyan, modifier = Modifier.size(16.dp))
+          Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = StudioPrimary, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(6.dp))
-          Text("Wybierz Wideo z Plików", color = Color.White, fontSize = 11.sp, maxLines = 1)
+          Text("Galeria Wideo", color = Color.White, fontSize = 11.sp, maxLines = 1)
         }
 
         OutlinedButton(
-          onClick = onLoadDemoVideo,
+          onClick = onPickSafVideo,
           shape = RoundedCornerShape(10.dp),
-          border = BorderStroke(1.dp, StudioMint.copy(alpha = 0.5f)),
-          modifier = Modifier.testTag("btn_load_demo_video")
+          border = BorderStroke(1.dp, Color(0xFF334155)),
+          modifier = Modifier
+            .weight(1f)
+            .testTag("btn_pick_saf_video")
         ) {
-          Text("Wideo Demo", color = StudioMint, fontSize = 11.sp)
+          Icon(Icons.Default.FolderOpen, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Pliki urządzenia", color = Color.LightGray, fontSize = 11.sp, maxLines = 1)
         }
       }
     }

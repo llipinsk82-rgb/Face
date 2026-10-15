@@ -7,14 +7,19 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.ml.FaceDetectionHelper
+import com.example.ml.FaceTracker
 import com.example.model.DetectedFaceInfo
+import com.example.model.ExportProgress
 import com.example.model.MediaMode
-import com.example.model.ProcessingProgress
 import com.example.model.ReplacementFace
 import com.example.model.SwapConfig
 import com.example.model.VideoInfo
 import com.example.util.SampleAssets
+import com.example.util.VideoExportEngine
 import com.example.util.VideoProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,9 +31,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class FaceSwapUiState(
-  val mediaMode: MediaMode = MediaMode.PHOTO,
+  val mediaMode: MediaMode = MediaMode.VIDEO,
   val presetFaces: List<ReplacementFace> = emptyList(),
   val customFaces: List<ReplacementFace> = emptyList(),
   val swapConfig: SwapConfig = SwapConfig(),
@@ -43,16 +49,16 @@ data class FaceSwapUiState(
   // Video
   val videoUri: Uri? = null,
   val videoInfo: VideoInfo? = null,
-  val isDemoVideo: Boolean = false,
   val currentVideoTimeMs: Long = 0L,
   val isPlayingVideo: Boolean = false,
   val currentVideoFrame: Bitmap? = null,
   val detectedVideoFaces: List<DetectedFaceInfo> = emptyList(),
   val renderedVideoFrame: Bitmap? = null,
   val isExtractingVideoFrame: Boolean = false,
+  val showOriginalComparison: Boolean = false,
 
-  // Export / Progress
-  val processingProgress: ProcessingProgress = ProcessingProgress(),
+  // Full Video Export Progress
+  val exportProgress: ExportProgress = ExportProgress(),
   val toastMessage: String? = null
 ) {
   val allAvailableFaces: List<ReplacementFace>
@@ -64,8 +70,34 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
   private val _uiState = MutableStateFlow(FaceSwapUiState())
   val uiState: StateFlow<FaceSwapUiState> = _uiState.asStateFlow()
 
-  private var videoPlayJob: Job? = null
-  private var demoFrameIndex = 0
+  val exoPlayer: ExoPlayer by lazy {
+    ExoPlayer.Builder(application).build().apply {
+      repeatMode = Player.REPEAT_MODE_ALL
+      addListener(object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+          _uiState.update { it.copy(isPlayingVideo = isPlaying) }
+          if (isPlaying) {
+            startPositionTracking()
+          } else {
+            stopPositionTracking()
+            // When paused, extract high-res frame at exact pause timestamp
+            refreshCurrentVideoFrame(currentPosition)
+          }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+          if (playbackState == Player.STATE_READY) {
+            _uiState.update { it.copy(currentVideoTimeMs = currentPosition) }
+          }
+        }
+      })
+    }
+  }
+
+  private var positionTrackJob: Job? = null
+  private val videoFaceTracker = FaceTracker()
+  private var exportJob: Job? = null
+  private val isExportCancelled = AtomicBoolean(false)
 
   init {
     val presets = SampleAssets.getPresetFaces(application)
@@ -76,17 +108,21 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
         swapConfig = it.swapConfig.copy(globalReplacement = defaultGlobal)
       )
     }
-    // Load sample group photo on first launch so user sees instant capability
-    loadSamplePhoto()
   }
 
   fun setMediaMode(mode: MediaMode) {
     if (_uiState.value.mediaMode == mode) return
-    pauseVideo()
-    _uiState.update { it.copy(mediaMode = mode) }
-    if (mode == MediaMode.VIDEO && _uiState.value.videoInfo == null && !_uiState.value.isDemoVideo) {
-      loadDemoVideo()
+    if (_uiState.value.mediaMode == MediaMode.VIDEO) {
+      exoPlayer.pause()
     }
+    _uiState.update { it.copy(mediaMode = mode) }
+    if (mode == MediaMode.PHOTO && _uiState.value.originalPhoto == null) {
+      loadSamplePhoto()
+    }
+  }
+
+  fun toggleComparison(showOriginal: Boolean) {
+    _uiState.update { it.copy(showOriginalComparison = showOriginal) }
   }
 
   fun loadSamplePhoto() {
@@ -110,7 +146,7 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
           _uiState.update {
             it.copy(
               isDetectingPhoto = false,
-              toastMessage = "Nie udało się wczytać zdjęcia"
+              toastMessage = "Nieprawidłowy plik obrazu"
             )
           }
         }
@@ -118,7 +154,7 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
         _uiState.update {
           it.copy(
             isDetectingPhoto = false,
-            toastMessage = "Błąd otwierania pliku: ${e.localizedMessage}"
+            toastMessage = "Błąd odczytu pliku: ${e.localizedMessage}"
           )
         }
       }
@@ -132,7 +168,8 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
         originalPhoto = bitmap,
         detectedPhotoFaces = faces,
         isDetectingPhoto = false,
-        selectedFaceIdToMap = faces.firstOrNull()?.id ?: 0
+        selectedFaceIdToMap = faces.firstOrNull()?.id ?: 0,
+        toastMessage = if (faces.isEmpty()) "Nie wykryto żadnej twarzy na zdjęciu" else "Wykryto ${faces.size} twarzy"
       )
     }
     reRenderPhoto()
@@ -148,142 +185,91 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
     }
   }
 
-  fun loadDemoVideo() {
-    pauseVideo()
-    demoFrameIndex = 0
-    val totalFrames = 120
-    val durationMs = (totalFrames / 24) * 1000L
-    _uiState.update {
-      it.copy(
-        videoUri = null,
-        isDemoVideo = true,
-        videoInfo = VideoInfo(
-          uriString = "demo://sample_video",
-          durationMs = durationMs,
-          width = 960,
-          height = 540
-        ),
-        currentVideoTimeMs = 0L,
-        toastMessage = "Wczytano wideo demonstracyjne"
-      )
-    }
-    renderDemoVideoFrame(0)
-  }
-
   fun loadVideoFromUri(context: Context, uri: Uri) {
-    pauseVideo()
+    exoPlayer.pause()
     viewModelScope.launch {
       _uiState.update { it.copy(isExtractingVideoFrame = true) }
       val info = VideoProcessor.extractVideoInfo(context, uri)
-      if (info != null) {
+      if (info != null && info.durationMs > 0L) {
+        videoFaceTracker.reset()
         _uiState.update {
           it.copy(
             videoUri = uri,
             videoInfo = info,
-            isDemoVideo = false,
             currentVideoTimeMs = 0L,
-            toastMessage = "Wczytano wideo: ${info.durationMs / 1000}s (${info.width}x${info.height})"
+            toastMessage = "Wczytano wideo: ${info.durationMs / 1000}s (${if (info.isVertical) "Pionowe" else "Poziome"})"
           )
         }
-        extractAndRenderVideoFrame(context, 0L)
+
+        // Configure ExoPlayer with real media and real audio
+        withContext(Dispatchers.Main) {
+          exoPlayer.setMediaItem(MediaItem.fromUri(uri))
+          exoPlayer.prepare()
+          exoPlayer.seekTo(0L)
+        }
+
+        refreshCurrentVideoFrame(0L)
       } else {
         _uiState.update {
           it.copy(
             isExtractingVideoFrame = false,
-            toastMessage = "Nie udało się odczytać pliku wideo"
+            toastMessage = "Błąd: Plik wideo jest nieobsługiwany lub uszkodzony"
           )
         }
       }
     }
   }
 
-  fun toggleVideoPlayback(context: Context) {
-    if (_uiState.value.isPlayingVideo) {
-      pauseVideo()
+  fun toggleVideoPlayback() {
+    if (exoPlayer.isPlaying) {
+      exoPlayer.pause()
     } else {
-      playVideo(context)
+      exoPlayer.play()
     }
   }
 
-  private fun playVideo(context: Context) {
-    _uiState.update { it.copy(isPlayingVideo = true) }
-    videoPlayJob?.cancel()
-    videoPlayJob = viewModelScope.launch {
-      val state = _uiState.value
-      val duration = state.videoInfo?.durationMs ?: 5000L
-
-      while (isActive && _uiState.value.isPlayingVideo) {
-        if (_uiState.value.isDemoVideo) {
-          demoFrameIndex = (demoFrameIndex + 1) % 120
-          val timeMs = (demoFrameIndex.toFloat() / 120f * duration).toLong()
-          _uiState.update { it.copy(currentVideoTimeMs = timeMs) }
-          renderDemoVideoFrame(demoFrameIndex)
-          delay(42) // ~24 FPS
-        } else {
-          val uri = _uiState.value.videoUri ?: break
-          var nextTime = _uiState.value.currentVideoTimeMs + 100
-          if (nextTime >= duration) nextTime = 0
-          _uiState.update { it.copy(currentVideoTimeMs = nextTime) }
-          extractAndRenderVideoFrame(context, nextTime)
-          delay(100)
-        }
-      }
-    }
-  }
-
-  fun pauseVideo() {
-    videoPlayJob?.cancel()
-    videoPlayJob = null
-    _uiState.update { it.copy(isPlayingVideo = false) }
-  }
-
-  fun seekVideo(context: Context, timeMs: Long) {
+  fun seekVideo(timeMs: Long) {
+    exoPlayer.seekTo(timeMs)
     _uiState.update { it.copy(currentVideoTimeMs = timeMs) }
-    if (_uiState.value.isDemoVideo) {
-      val duration = _uiState.value.videoInfo?.durationMs ?: 5000L
-      val fraction = (timeMs.toFloat() / duration.coerceAtLeast(1L).toFloat()).coerceIn(0f, 1f)
-      demoFrameIndex = (fraction * 119).toInt()
-      renderDemoVideoFrame(demoFrameIndex)
-    } else {
-      viewModelScope.launch {
-        extractAndRenderVideoFrame(context, timeMs)
+    refreshCurrentVideoFrame(timeMs)
+  }
+
+  private fun startPositionTracking() {
+    positionTrackJob?.cancel()
+    positionTrackJob = viewModelScope.launch {
+      while (isActive && exoPlayer.isPlaying) {
+        val pos = exoPlayer.currentPosition
+        _uiState.update { it.copy(currentVideoTimeMs = pos) }
+        delay(250) // Update UI scrubber
       }
     }
   }
 
-  private fun renderDemoVideoFrame(frameIndex: Int) {
-    viewModelScope.launch(Dispatchers.Default) {
-      val raw = VideoProcessor.generateDemoVideoFrame(frameIndex)
-      val faces = FaceDetectionHelper.detectFaces(raw)
-      val rendered = FaceDetectionHelper.renderFaceSwap(raw, faces, _uiState.value.swapConfig)
-      _uiState.update {
-        it.copy(
-          currentVideoFrame = raw,
-          detectedVideoFaces = faces,
-          renderedVideoFrame = rendered,
-          isExtractingVideoFrame = false
-        )
-      }
-    }
+  private fun stopPositionTracking() {
+    positionTrackJob?.cancel()
+    positionTrackJob = null
   }
 
-  private suspend fun extractAndRenderVideoFrame(context: Context, timeMs: Long) {
+  private fun refreshCurrentVideoFrame(timeMs: Long) {
     val uri = _uiState.value.videoUri ?: return
-    _uiState.update { it.copy(isExtractingVideoFrame = true) }
-    val frameBmp = VideoProcessor.extractFrameAtTime(context, uri, timeMs * 1000L)
-    if (frameBmp != null) {
-      val faces = FaceDetectionHelper.detectFaces(frameBmp)
-      val rendered = FaceDetectionHelper.renderFaceSwap(frameBmp, faces, _uiState.value.swapConfig)
-      _uiState.update {
-        it.copy(
-          currentVideoFrame = frameBmp,
-          detectedVideoFaces = faces,
-          renderedVideoFrame = rendered,
-          isExtractingVideoFrame = false
-        )
+    viewModelScope.launch {
+      _uiState.update { it.copy(isExtractingVideoFrame = true) }
+      val frameBmp = VideoProcessor.extractFrameAtTime(getApplication(), uri, timeMs * 1000L)
+      if (frameBmp != null) {
+        val faces = FaceDetectionHelper.detectFaces(frameBmp)
+        val smoothed = videoFaceTracker.update(faces)
+        val rendered = FaceDetectionHelper.renderFaceSwapSmoothed(frameBmp, smoothed, _uiState.value.swapConfig)
+        _uiState.update {
+          it.copy(
+            currentVideoFrame = frameBmp,
+            detectedVideoFaces = faces,
+            renderedVideoFrame = rendered,
+            isExtractingVideoFrame = false
+          )
+        }
+      } else {
+        _uiState.update { it.copy(isExtractingVideoFrame = false) }
       }
-    } else {
-      _uiState.update { it.copy(isExtractingVideoFrame = false) }
     }
   }
 
@@ -292,7 +278,8 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
     val faces = _uiState.value.detectedVideoFaces
     val config = _uiState.value.swapConfig
     viewModelScope.launch(Dispatchers.Default) {
-      val rendered = FaceDetectionHelper.renderFaceSwap(raw, faces, config)
+      val smoothed = videoFaceTracker.update(faces)
+      val rendered = FaceDetectionHelper.renderFaceSwapSmoothed(raw, smoothed, config)
       _uiState.update { it.copy(renderedVideoFrame = rendered) }
     }
   }
@@ -331,11 +318,6 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
 
   fun updateYOffset(offset: Float) {
     _uiState.update { it.copy(swapConfig = it.swapConfig.copy(yOffset = offset)) }
-    reRenderActiveMedia()
-  }
-
-  fun updateXOffset(offset: Float) {
-    _uiState.update { it.copy(swapConfig = it.swapConfig.copy(xOffset = offset)) }
     reRenderActiveMedia()
   }
 
@@ -389,22 +371,104 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
     }
   }
 
-  fun exportCurrentMedia(context: Context) {
-    viewModelScope.launch {
-      val bmp = if (_uiState.value.mediaMode == MediaMode.PHOTO) {
-        _uiState.value.renderedPhoto
-      } else {
-        _uiState.value.renderedVideoFrame
+  /**
+   * Real full video export to MP4 with original audio track, duration, and orientation preserved.
+   */
+  fun exportFullVideo(context: Context) {
+    val uri = _uiState.value.videoUri
+    if (uri == null) {
+      _uiState.update { it.copy(toastMessage = "Wybierz najpierw plik wideo do eksportu") }
+      return
+    }
+
+    exoPlayer.pause()
+    isExportCancelled.set(false)
+
+    exportJob?.cancel()
+    exportJob = viewModelScope.launch {
+      _uiState.update {
+        it.copy(
+          exportProgress = ExportProgress(
+            isExporting = true,
+            statusText = "Inicjalizacja kodera MP4..."
+          )
+        )
       }
 
+      val result = VideoExportEngine.exportVideo(
+        context = context,
+        sourceUri = uri,
+        swapConfig = _uiState.value.swapConfig,
+        isCancelled = isExportCancelled,
+        onProgress = { progress, currentFrame, totalFrames, currentSec, totalSec, status ->
+          _uiState.update {
+            it.copy(
+              exportProgress = it.exportProgress.copy(
+                isExporting = true,
+                progress = progress,
+                currentFrame = currentFrame,
+                totalFrames = totalFrames,
+                currentSec = currentSec,
+                totalSec = totalSec,
+                statusText = status
+              )
+            )
+          }
+        }
+      )
+
+      result.onSuccess { savedPath ->
+        _uiState.update {
+          it.copy(
+            exportProgress = it.exportProgress.copy(
+              isExporting = false,
+              progress = 1.0f,
+              statusText = "Gotowe! Zapisano wideo MP4.",
+              savedPath = savedPath
+            ),
+            toastMessage = "Wyeksportowano pomyślnie do MP4!"
+          )
+        }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            exportProgress = it.exportProgress.copy(
+              isExporting = false,
+              errorMessage = error.localizedMessage ?: "Błąd eksportu wideo",
+              statusText = "Niepowodzenie eksportu"
+            ),
+            toastMessage = "Błąd eksportu: ${error.localizedMessage}"
+          )
+        }
+      }
+    }
+  }
+
+  fun cancelExport() {
+    isExportCancelled.set(true)
+    exportJob?.cancel()
+    _uiState.update {
+      it.copy(
+        exportProgress = ExportProgress(isExporting = false, statusText = "Eksport anulowany"),
+        toastMessage = "Eksport wideo został anulowany"
+      )
+    }
+  }
+
+  fun dismissExportDialog() {
+    _uiState.update { it.copy(exportProgress = ExportProgress()) }
+  }
+
+  fun exportCurrentPhoto(context: Context) {
+    viewModelScope.launch {
+      val bmp = _uiState.value.renderedPhoto
       if (bmp == null) {
-        _uiState.update { it.copy(toastMessage = "Brak wygenerowanego obrazu do zapisu") }
+        _uiState.update { it.copy(toastMessage = "Brak wygenerowanego zdjęcia") }
         return@launch
       }
-
-      val path = VideoProcessor.saveBitmapToFile(context, bmp, "faceswap_export")
+      val path = VideoProcessor.saveBitmapToFile(context, bmp, "faceswap_photo")
       _uiState.update {
-        it.copy(toastMessage = "Zapisano pomyślnie w pamięci telefonu: $path")
+        it.copy(toastMessage = "Zapisano zdjęcie w pamięci telefonu: $path")
       }
     }
   }
@@ -415,6 +479,7 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
 
   override fun onCleared() {
     super.onCleared()
-    pauseVideo()
+    stopPositionTracking()
+    exoPlayer.release()
   }
 }

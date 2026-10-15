@@ -6,7 +6,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,8 +28,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,9 +68,8 @@ import com.example.ui.FaceSwapViewModel
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.StudioCyan
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioViolet
+import com.example.ui.theme.StudioPrimary
+import com.example.ui.theme.StudioSuccess
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,7 +81,7 @@ fun FaceSwapApp(
   val uiState by viewModel.uiState.collectAsState()
   val snackbarHostState = remember { SnackbarHostState() }
 
-  // Activity Result Launchers using standard zero-permission Photo Picker
+  // 1. Photo Picker (Gallery)
   val photoPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri: Uri? ->
@@ -91,6 +90,7 @@ fun FaceSwapApp(
     }
   }
 
+  // 2. Video Picker (Gallery)
   val videoPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri: Uri? ->
@@ -99,6 +99,24 @@ fun FaceSwapApp(
     }
   }
 
+  // 3. System SAF Document Picker (fallback for any file manager or SD card)
+  val safVideoPickerLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.OpenDocument()
+  ) { uri: Uri? ->
+    if (uri != null) {
+      viewModel.loadVideoFromUri(context, uri)
+    }
+  }
+
+  val safPhotoPickerLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.OpenDocument()
+  ) { uri: Uri? ->
+    if (uri != null) {
+      viewModel.loadPhotoFromUri(context, uri)
+    }
+  }
+
+  // 4. Custom Replacement Face Picker
   val customFacePickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia()
   ) { uri: Uri? ->
@@ -129,12 +147,12 @@ fun FaceSwapApp(
           ) {
             Box(
               modifier = Modifier
-                .size(36.dp)
+                .size(34.dp)
                 .clip(CircleShape)
-                .background(StudioCyan),
+                .background(StudioPrimary),
               contentAlignment = Alignment.Center
             ) {
-              Text("FS", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 14.sp)
+              Text("FS", color = Color(0xFF082F49), fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
 
             Column {
@@ -145,9 +163,9 @@ fun FaceSwapApp(
                 color = Color.White
               )
               Text(
-                text = "Wideo & Zdjęcia • 100% Offline • Bez limitu",
+                text = "Lokalne przetwarzanie na urządzeniu (ML Kit)",
                 style = MaterialTheme.typography.bodySmall,
-                color = StudioCyan,
+                color = Color.Gray,
                 fontSize = 11.sp
               )
             }
@@ -155,25 +173,7 @@ fun FaceSwapApp(
         },
         colors = TopAppBarDefaults.topAppBarColors(
           containerColor = DarkSurface
-        ),
-        actions = {
-          // Info chip
-          Box(
-            modifier = Modifier
-              .padding(end = 12.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .background(Color(0xFF1E2838))
-              .border(1.dp, StudioMint.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-              .padding(horizontal = 8.dp, vertical = 4.dp)
-          ) {
-            Text(
-              text = "PRO FREE",
-              color = StudioMint,
-              fontSize = 10.sp,
-              fontWeight = FontWeight.Bold
-            )
-          }
-        }
+        )
       )
     },
     bottomBar = {
@@ -192,7 +192,7 @@ fun FaceSwapApp(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
-          // Change source media button
+          // Source selector button
           OutlinedButton(
             onClick = {
               if (uiState.mediaMode == MediaMode.PHOTO) {
@@ -213,7 +213,7 @@ fun FaceSwapApp(
             Icon(
               Icons.Default.AddPhotoAlternate,
               contentDescription = null,
-              tint = StudioCyan,
+              tint = StudioPrimary,
               modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
@@ -225,29 +225,55 @@ fun FaceSwapApp(
             )
           }
 
-          // Save / Export button
-          Button(
-            onClick = { viewModel.exportCurrentMedia(context) },
-            colors = ButtonDefaults.buttonColors(containerColor = StudioCyan),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-              .weight(1f)
-              .testTag("btn_export_media")
-          ) {
-            Icon(
-              Icons.Default.Download,
-              contentDescription = null,
-              tint = Color.Black,
-              modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-              text = "Zapisz Klatkę",
-              color = Color.Black,
-              fontWeight = FontWeight.Bold,
-              fontSize = 12.sp,
-              maxLines = 1
-            )
+          // Real MP4 Video Export or Photo Save
+          if (uiState.mediaMode == MediaMode.VIDEO) {
+            Button(
+              onClick = { viewModel.exportFullVideo(context) },
+              colors = ButtonDefaults.buttonColors(containerColor = StudioSuccess),
+              shape = RoundedCornerShape(12.dp),
+              modifier = Modifier
+                .weight(1.3f)
+                .testTag("btn_export_video_mp4")
+            ) {
+              Icon(
+                Icons.Default.Movie,
+                contentDescription = null,
+                tint = Color.Black,
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text(
+                text = "Eksportuj Wideo MP4",
+                color = Color.Black,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                maxLines = 1
+              )
+            }
+          } else {
+            Button(
+              onClick = { viewModel.exportCurrentPhoto(context) },
+              colors = ButtonDefaults.buttonColors(containerColor = StudioPrimary),
+              shape = RoundedCornerShape(12.dp),
+              modifier = Modifier
+                .weight(1.2f)
+                .testTag("btn_export_photo")
+            ) {
+              Icon(
+                Icons.Default.Download,
+                contentDescription = null,
+                tint = Color(0xFF082F49),
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text(
+                text = "Zapisz Zdjęcie",
+                color = Color(0xFF082F49),
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                maxLines = 1
+              )
+            }
           }
         }
       }
@@ -259,35 +285,42 @@ fun FaceSwapApp(
         .padding(paddingValues)
         .verticalScroll(rememberScrollState())
     ) {
-      // Mode Switcher Tabs
+      // Linear Workflow Steps Indicator
+      Surface(
+        color = Color(0xFF1E293B),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Text("1. Wybierz plik", fontSize = 11.sp, color = StudioPrimary, fontWeight = FontWeight.SemiBold)
+          Text("→", fontSize = 11.sp, color = Color.Gray)
+          Text("2. Wykryj twarze", fontSize = 11.sp, color = Color.White)
+          Text("→", fontSize = 11.sp, color = Color.Gray)
+          Text("3. Wybierz podmianę", fontSize = 11.sp, color = Color.White)
+          Text("→", fontSize = 11.sp, color = Color.Gray)
+          Text("4. Eksport MP4", fontSize = 11.sp, color = StudioSuccess, fontWeight = FontWeight.SemiBold)
+        }
+      }
+
+      // Mode Switcher Tabs (Wideo vs Zdjęcia)
       TabRow(
-        selectedTabIndex = if (uiState.mediaMode == MediaMode.PHOTO) 0 else 1,
+        selectedTabIndex = if (uiState.mediaMode == MediaMode.VIDEO) 0 else 1,
         containerColor = DarkSurface,
-        contentColor = StudioCyan,
+        contentColor = StudioPrimary,
         indicator = { tabPositions ->
           TabRowDefaults.SecondaryIndicator(
             modifier = Modifier.tabIndicatorOffset(
-              tabPositions[if (uiState.mediaMode == MediaMode.PHOTO) 0 else 1]
+              tabPositions[if (uiState.mediaMode == MediaMode.VIDEO) 0 else 1]
             ),
-            color = StudioCyan
+            color = StudioPrimary
           )
         }
       ) {
-        Tab(
-          selected = uiState.mediaMode == MediaMode.PHOTO,
-          onClick = { viewModel.setMediaMode(MediaMode.PHOTO) },
-          text = {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-              Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-              Text("ZDJĘCIA", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            }
-          },
-          modifier = Modifier.testTag("tab_photos")
-        )
-
         Tab(
           selected = uiState.mediaMode == MediaMode.VIDEO,
           onClick = { viewModel.setMediaMode(MediaMode.VIDEO) },
@@ -302,11 +335,26 @@ fun FaceSwapApp(
           },
           modifier = Modifier.testTag("tab_videos")
         )
+
+        Tab(
+          selected = uiState.mediaMode == MediaMode.PHOTO,
+          onClick = { viewModel.setMediaMode(MediaMode.PHOTO) },
+          text = {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+              Text("ZDJĘCIA", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+          },
+          modifier = Modifier.testTag("tab_photos")
+        )
       }
 
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
 
-      // Media Preview Card
+      // Media Preview Card (Real ExoPlayer in Video mode, Real ML Kit in Photo mode)
       val activeRendered = if (uiState.mediaMode == MediaMode.PHOTO) {
         uiState.renderedPhoto
       } else {
@@ -332,52 +380,19 @@ fun FaceSwapApp(
       }
 
       MediaPreviewCard(
+        mediaMode = uiState.mediaMode,
         renderedBitmap = activeRendered,
         originalBitmap = activeOriginal,
         detectedFaces = activeDetectedFaces,
         selectedFaceId = uiState.selectedFaceIdToMap,
         isLoading = activeLoading,
-        onFaceTapped = { faceId ->
-          viewModel.selectFaceForMapping(faceId)
-        }
+        isPlayingVideo = uiState.isPlayingVideo,
+        exoPlayer = viewModel.exoPlayer,
+        videoInfo = uiState.videoInfo,
+        showBeforeAfterComparison = uiState.showOriginalComparison,
+        onFaceTapped = { faceId -> viewModel.selectFaceForMapping(faceId) },
+        onToggleComparison = { showOrig -> viewModel.toggleComparison(showOrig) }
       )
-
-      // Reset / Sample helper buttons under preview
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(horizontal = 20.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        if (uiState.mediaMode == MediaMode.PHOTO) {
-          OutlinedButton(
-            onClick = { viewModel.loadSamplePhoto() },
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.testTag("btn_load_sample_photo")
-          ) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Wczytaj Zdjęcie Próbne (3 osoby)", fontSize = 11.sp, color = StudioCyan)
-          }
-        } else {
-          OutlinedButton(
-            onClick = { viewModel.loadDemoVideo() },
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.testTag("btn_reset_demo_video")
-          ) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Wczytaj Klip Demo", fontSize = 11.sp, color = StudioMint)
-          }
-        }
-
-        Text(
-          text = "Dotknij twarzy aby wybrać",
-          fontSize = 11.sp,
-          color = Color.Gray
-        )
-      }
 
       // Video Timeline Controls (only in Video mode)
       if (uiState.mediaMode == MediaMode.VIDEO) {
@@ -385,15 +400,51 @@ fun FaceSwapApp(
           videoInfo = uiState.videoInfo,
           currentTimeMs = uiState.currentVideoTimeMs,
           isPlaying = uiState.isPlayingVideo,
-          onTogglePlay = { viewModel.toggleVideoPlayback(context) },
-          onSeek = { ms -> viewModel.seekVideo(context, ms) },
-          onLoadDemoVideo = { viewModel.loadDemoVideo() },
-          onPickNewVideo = {
+          onTogglePlay = { viewModel.toggleVideoPlayback() },
+          onSeek = { ms -> viewModel.seekVideo(ms) },
+          onPickGalleryVideo = {
             videoPickerLauncher.launch(
               PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
             )
+          },
+          onPickSafVideo = {
+            safVideoPickerLauncher.launch(arrayOf("video/*"))
           }
         )
+      } else {
+        // Photo mode file options
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          OutlinedButton(
+            onClick = {
+              photoPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+              )
+            },
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.weight(1f).testTag("btn_photo_gallery")
+          ) {
+            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Galeria zdjęć", fontSize = 11.sp, color = StudioPrimary)
+          }
+
+          OutlinedButton(
+            onClick = {
+              safPhotoPickerLauncher.launch(arrayOf("image/*"))
+            },
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.weight(1f).testTag("btn_photo_saf")
+          ) {
+            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Pliki urządzenia", fontSize = 11.sp, color = Color.LightGray)
+          }
+        }
       }
 
       // Face Selection & Mapping Bar
@@ -418,7 +469,7 @@ fun FaceSwapApp(
         }
       )
 
-      // Fine Tuning Controls
+      // Fine Tuning Controls (Advanced, collapsed by default)
       TuningControlsCard(
         config = uiState.swapConfig,
         onScaleChange = { viewModel.updateScale(it) },
@@ -428,7 +479,14 @@ fun FaceSwapApp(
         onToggleOvalMask = { viewModel.toggleOvalMask(it) }
       )
 
-      Spacer(modifier = Modifier.height(24.dp))
+      Spacer(modifier = Modifier.height(28.dp))
     }
   }
+
+  // Real MP4 Export Progress & Status Dialog
+  ExportProgressDialog(
+    exportProgress = uiState.exportProgress,
+    onCancel = { viewModel.cancelExport() },
+    onDismiss = { viewModel.dismissExportDialog() }
+  )
 }

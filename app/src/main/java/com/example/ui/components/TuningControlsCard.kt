@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,8 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.SwapConfig
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceCard
-import com.example.ui.theme.StudioCyan
-import com.example.ui.theme.StudioMint
+import com.example.ui.theme.StudioPrimary
 import kotlin.math.roundToInt
 
 @Composable
@@ -58,7 +58,7 @@ fun TuningControlsCard(
   Surface(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = 16.dp, vertical = 6.dp)
+      .padding(horizontal = 16.dp, vertical = 4.dp)
       .testTag("tuning_controls_card"),
     shape = RoundedCornerShape(16.dp),
     color = DarkSurfaceCard,
@@ -81,14 +81,14 @@ fun TuningControlsCard(
           Icon(
             Icons.Default.Tune,
             contentDescription = null,
-            tint = StudioCyan,
+            tint = StudioPrimary,
             modifier = Modifier.size(20.dp)
           )
           Text(
-            text = "Dopasowanie & Precyzja (Skala, Kąt, Krycie)",
+            text = "Zaawansowane dopasowanie",
             style = MaterialTheme.typography.titleSmall,
             color = Color.White,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.SemiBold
           )
         }
 
@@ -105,60 +105,80 @@ fun TuningControlsCard(
             .fillMaxWidth()
             .padding(top = 12.dp)
         ) {
+          // Honest technology disclosure
+          Surface(
+            color = Color(0xFF0F172A),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+          ) {
+            Row(
+              modifier = Modifier.padding(10.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              Icon(Icons.Default.Info, contentDescription = null, tint = StudioPrimary, modifier = Modifier.size(16.dp))
+              Text(
+                text = "Silnik dopasowuje maskę na podstawie punktów oczu i owalu głowy z wygładzaniem ruchu. Nie symuluje ruchów ust (lip-sync).",
+                fontSize = 11.sp,
+                color = Color.LightGray,
+                lineHeight = 15.sp
+              )
+            }
+          }
+
           // Scale Slider
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
           ) {
-            Text("Powiększenie maski:", fontSize = 12.sp, color = Color.LightGray)
-            Text("${(config.scale * 100).roundToInt()}%", fontSize = 12.sp, color = StudioCyan, fontWeight = FontWeight.Bold)
+            Text("Powiększenie:", fontSize = 12.sp, color = Color.LightGray)
+            Text("${(config.scale * 100).roundToInt()}%", fontSize = 12.sp, color = StudioPrimary, fontWeight = FontWeight.Bold)
           }
           Slider(
             value = config.scale,
             onValueChange = onScaleChange,
-            valueRange = 0.8f..1.6f,
+            valueRange = 0.8f..1.5f,
             colors = SliderDefaults.colors(
-              thumbColor = StudioCyan,
-              activeTrackColor = StudioCyan
+              thumbColor = StudioPrimary,
+              activeTrackColor = StudioPrimary
             ),
             modifier = Modifier.testTag("slider_scale")
           )
 
-          Spacer(modifier = Modifier.height(6.dp))
+          Spacer(modifier = Modifier.height(4.dp))
 
           // Y-Offset Slider
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
           ) {
-            Text("Przesunięcie pionowe:", fontSize = 12.sp, color = Color.LightGray)
-            Text("${(config.yOffset * 100).roundToInt()}%", fontSize = 12.sp, color = StudioMint)
+            Text("Pozycja pionowa (Góra/Dół):", fontSize = 12.sp, color = Color.LightGray)
+            Text("${(config.yOffset * 100).roundToInt()}%", fontSize = 12.sp, color = Color.White)
           }
           Slider(
             value = config.yOffset,
             onValueChange = onYOffsetChange,
-            valueRange = -0.3f..0.3f,
+            valueRange = -0.25f..0.25f,
             colors = SliderDefaults.colors(
-              thumbColor = StudioMint,
-              activeTrackColor = StudioMint
+              thumbColor = Color.White,
+              activeTrackColor = Color.White
             ),
             modifier = Modifier.testTag("slider_y_offset")
           )
 
-          Spacer(modifier = Modifier.height(6.dp))
+          Spacer(modifier = Modifier.height(4.dp))
 
           // Alpha Slider
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
           ) {
-            Text("Przezroczystość (Krycie):", fontSize = 12.sp, color = Color.LightGray)
+            Text("Krycie (Przezroczystość):", fontSize = 12.sp, color = Color.LightGray)
             Text("${(config.alpha * 100).roundToInt()}%", fontSize = 12.sp, color = Color.White)
           }
           Slider(
             value = config.alpha,
             onValueChange = onAlphaChange,
-            valueRange = 0.2f..1.0f,
+            valueRange = 0.3f..1.0f,
             colors = SliderDefaults.colors(
               thumbColor = Color.White,
               activeTrackColor = Color.White
@@ -176,12 +196,12 @@ fun TuningControlsCard(
           ) {
             Column {
               Text("Śledzenie pochylenia głowy", fontSize = 13.sp, color = Color.White)
-              Text("Dopasowuje rotację maski do kąta szyi", fontSize = 11.sp, color = Color.Gray)
+              Text("Dopasowuje kąt maski do linii oczu", fontSize = 11.sp, color = Color.Gray)
             }
             Switch(
               checked = config.rotationEnabled,
               onCheckedChange = onToggleRotation,
-              colors = SwitchDefaults.colors(checkedThumbColor = StudioCyan),
+              colors = SwitchDefaults.colors(checkedThumbColor = StudioPrimary),
               modifier = Modifier.testTag("switch_rotation")
             )
           }
@@ -195,13 +215,13 @@ fun TuningControlsCard(
             verticalAlignment = Alignment.CenterVertically
           ) {
             Column {
-              Text("Kształt owalny (Owal twarzy)", fontSize = 13.sp, color = Color.White)
-              Text("Wygładza krawędzie zamiast prostokąta", fontSize = 11.sp, color = Color.Gray)
+              Text("Wygładzony owal twarzy", fontSize = 13.sp, color = Color.White)
+              Text("Eliminuje ostre krawędzie maski", fontSize = 11.sp, color = Color.Gray)
             }
             Switch(
               checked = config.isOvalMask,
               onCheckedChange = onToggleOvalMask,
-              colors = SwitchDefaults.colors(checkedThumbColor = StudioCyan),
+              colors = SwitchDefaults.colors(checkedThumbColor = StudioPrimary),
               modifier = Modifier.testTag("switch_oval_mask")
             )
           }

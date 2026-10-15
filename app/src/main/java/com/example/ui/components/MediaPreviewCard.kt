@@ -1,10 +1,10 @@
 package com.example.ui.components
 
 import android.graphics.Bitmap
+import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -47,124 +47,163 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.example.model.DetectedFaceInfo
+import com.example.model.MediaMode
+import com.example.model.VideoInfo
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.StudioCyan
-import com.example.ui.theme.StudioViolet
+import com.example.ui.theme.StudioPrimary
+import com.example.ui.theme.StudioSecondary
 
+@OptIn(UnstableApi::class)
 @Composable
 fun MediaPreviewCard(
+  mediaMode: MediaMode,
   renderedBitmap: Bitmap?,
   originalBitmap: Bitmap?,
   detectedFaces: List<DetectedFaceInfo>,
   selectedFaceId: Int,
   isLoading: Boolean,
+  isPlayingVideo: Boolean,
+  exoPlayer: ExoPlayer?,
+  videoInfo: VideoInfo?,
+  showBeforeAfterComparison: Boolean,
   onFaceTapped: (Int) -> Unit,
+  onToggleComparison: (Boolean) -> Unit,
   modifier: Modifier = Modifier
 ) {
   var showBoundingBoxes by remember { mutableStateOf(false) }
-  var showOriginal by remember { mutableStateOf(false) }
 
-  val activeBitmap = if (showOriginal) originalBitmap else renderedBitmap ?: originalBitmap
+  // Target aspect ratio: use video's real aspect ratio if in video mode, else default 4:3 or bitmap ratio
+  val targetAspectRatio = if (mediaMode == MediaMode.VIDEO && videoInfo != null && videoInfo.aspectRatio > 0f) {
+    videoInfo.aspectRatio.coerceIn(0.5f, 2.2f)
+  } else if (renderedBitmap != null && renderedBitmap.height > 0) {
+    (renderedBitmap.width.toFloat() / renderedBitmap.height.toFloat()).coerceIn(0.5f, 2.2f)
+  } else {
+    16f / 9f
+  }
 
   Surface(
     modifier = modifier
       .fillMaxWidth()
       .padding(horizontal = 16.dp, vertical = 6.dp)
       .testTag("media_preview_card"),
-    shape = RoundedCornerShape(20.dp),
+    shape = RoundedCornerShape(16.dp),
     color = DarkSurface,
     border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
   ) {
     Box(
       modifier = Modifier
         .fillMaxWidth()
-        .aspectRatio(16f / 10f)
+        .heightIn(min = 220.dp, max = 500.dp)
+        .aspectRatio(targetAspectRatio)
         .background(Color.Black),
       contentAlignment = Alignment.Center
     ) {
-      if (activeBitmap != null) {
-        val imageBitmap = remember(activeBitmap) { activeBitmap.asImageBitmap() }
+      if (mediaMode == MediaMode.VIDEO && isPlayingVideo && exoPlayer != null) {
+        // Real ExoPlayer Video Playback with real audio
+        AndroidView(
+          factory = { ctx ->
+            PlayerView(ctx).apply {
+              player = exoPlayer
+              useController = false
+              resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+              setBackgroundColor(android.graphics.Color.BLACK)
+            }
+          },
+          update = { playerView ->
+            playerView.player = exoPlayer
+          },
+          modifier = Modifier.fillMaxSize()
+        )
+      } else {
+        // Still frame / Photo rendering (when paused, scrubbing, or viewing photo)
+        val activeBitmap = if (showBeforeAfterComparison) originalBitmap else (renderedBitmap ?: originalBitmap)
 
-        Box(modifier = Modifier.fillMaxSize()) {
-          Image(
-            bitmap = imageBitmap,
-            contentDescription = "Podgląd z podmienionymi twarzami",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-              .fillMaxSize()
-              .pointerInput(detectedFaces, activeBitmap) {
-                detectTapGestures { tapOffset ->
-                  if (detectedFaces.isNotEmpty()) {
-                    // Map tap offset to bitmap coordinate
-                    val canvasW = size.width.toFloat()
-                    val canvasH = size.height.toFloat()
-                    val bmpW = activeBitmap.width.toFloat()
-                    val bmpH = activeBitmap.height.toFloat()
+        if (activeBitmap != null) {
+          val imageBitmap = remember(activeBitmap) { activeBitmap.asImageBitmap() }
 
-                    // Compute aspect fit scale and letterbox offset
-                    val scale = (canvasW / bmpW).coerceAtMost(canvasH / bmpH)
-                    val fitW = bmpW * scale
-                    val fitH = bmpH * scale
-                    val offX = (canvasW - fitW) / 2f
-                    val offY = (canvasH - fitH) / 2f
+          Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+              bitmap = imageBitmap,
+              contentDescription = "Podgląd z podmienionymi twarzami",
+              contentScale = ContentScale.Fit,
+              modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(detectedFaces, activeBitmap) {
+                  detectTapGestures { tapOffset ->
+                    if (detectedFaces.isNotEmpty()) {
+                      val canvasW = size.width.toFloat()
+                      val canvasH = size.height.toFloat()
+                      val bmpW = activeBitmap.width.toFloat()
+                      val bmpH = activeBitmap.height.toFloat()
 
-                    if (tapOffset.x in offX..(offX + fitW) && tapOffset.y in offY..(offY + fitH)) {
-                      val bmpX = (tapOffset.x - offX) / scale
-                      val bmpY = (tapOffset.y - offY) / scale
+                      val scale = (canvasW / bmpW).coerceAtMost(canvasH / bmpH)
+                      val fitW = bmpW * scale
+                      val fitH = bmpH * scale
+                      val offX = (canvasW - fitW) / 2f
+                      val offY = (canvasH - fitH) / 2f
 
-                      // Find which face bounds contains this point
-                      val tapped = detectedFaces.firstOrNull { face ->
-                        face.bounds.contains(bmpX.toInt(), bmpY.toInt())
-                      }
-                      if (tapped != null) {
-                        onFaceTapped(tapped.id)
+                      if (tapOffset.x in offX..(offX + fitW) && tapOffset.y in offY..(offY + fitH)) {
+                        val bmpX = (tapOffset.x - offX) / scale
+                        val bmpY = (tapOffset.y - offY) / scale
+
+                        val tapped = detectedFaces.firstOrNull { face ->
+                          face.bounds.contains(bmpX.toInt(), bmpY.toInt())
+                        }
+                        if (tapped != null) {
+                          onFaceTapped(tapped.id)
+                        }
                       }
                     }
                   }
                 }
-              }
-          )
+            )
 
-          // Bounding boxes overlay if enabled
-          if (showBoundingBoxes && detectedFaces.isNotEmpty()) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-              val canvasW = size.width
-              val canvasH = size.height
-              val bmpW = activeBitmap.width.toFloat()
-              val bmpH = activeBitmap.height.toFloat()
+            // Bounding boxes overlay if enabled
+            if (showBoundingBoxes && detectedFaces.isNotEmpty()) {
+              Canvas(modifier = Modifier.fillMaxSize()) {
+                val canvasW = size.width
+                val canvasH = size.height
+                val bmpW = activeBitmap.width.toFloat()
+                val bmpH = activeBitmap.height.toFloat()
 
-              val scale = (canvasW / bmpW).coerceAtMost(canvasH / bmpH)
-              val fitW = bmpW * scale
-              val fitH = bmpH * scale
-              val offX = (canvasW - fitW) / 2f
-              val offY = (canvasH - fitH) / 2f
+                val scale = (canvasW / bmpW).coerceAtMost(canvasH / bmpH)
+                val fitW = bmpW * scale
+                val fitH = bmpH * scale
+                val offX = (canvasW - fitW) / 2f
+                val offY = (canvasH - fitH) / 2f
 
-              detectedFaces.forEach { face ->
-                val isSelected = face.id == selectedFaceId
-                val boxLeft = offX + (face.bounds.left * scale)
-                val boxTop = offY + (face.bounds.top * scale)
-                val boxWidth = face.bounds.width() * scale
-                val boxHeight = face.bounds.height() * scale
+                detectedFaces.forEach { face ->
+                  val isSelected = face.id == selectedFaceId
+                  val boxLeft = offX + (face.bounds.left * scale)
+                  val boxTop = offY + (face.bounds.top * scale)
+                  val boxWidth = face.bounds.width() * scale
+                  val boxHeight = face.bounds.height() * scale
 
-                drawRoundRect(
-                  color = if (isSelected) StudioViolet else StudioCyan,
-                  topLeft = Offset(boxLeft, boxTop),
-                  size = Size(boxWidth, boxHeight),
-                  cornerRadius = androidx.compose.ui.geometry.CornerRadius(12f, 12f),
-                  style = Stroke(width = if (isSelected) 5f else 3f)
-                )
+                  drawRoundRect(
+                    color = if (isSelected) StudioSecondary else StudioPrimary,
+                    topLeft = Offset(boxLeft, boxTop),
+                    size = Size(boxWidth, boxHeight),
+                    cornerRadius = CornerRadius(8f, 8f),
+                    style = Stroke(width = if (isSelected) 4f else 2.5f)
+                  )
+                }
               }
             }
           }
+        } else {
+          Text(
+            text = if (mediaMode == MediaMode.VIDEO) "Wybierz plik wideo do odtworzenia" else "Wybierz zdjęcie do edycji",
+            color = Color.Gray,
+            fontSize = 13.sp
+          )
         }
-      } else {
-        Text(
-          text = "Wczytaj zdjęcie lub wideo",
-          color = Color.Gray,
-          fontSize = 14.sp
-        )
       }
 
       if (isLoading) {
@@ -175,13 +214,13 @@ fun MediaPreviewCard(
           contentAlignment = Alignment.Center
         ) {
           CircularProgressIndicator(
-            color = StudioCyan,
+            color = StudioPrimary,
             modifier = Modifier.size(36.dp)
           )
         }
       }
 
-      // Top floating status & controls badges
+      // Top floating status badges
       Row(
         modifier = Modifier
           .fillMaxWidth()
@@ -192,54 +231,72 @@ fun MediaPreviewCard(
         // Face Count Badge
         Box(
           modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.7f))
-            .border(1.dp, StudioCyan.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.75f))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
           Text(
-            text = "Wykryto: ${detectedFaces.size} twarzy",
-            color = StudioCyan,
+            text = if (detectedFaces.isEmpty()) "Brak wykrytych twarzy" else "Wykryto: ${detectedFaces.size} twarzy",
+            color = if (detectedFaces.isEmpty()) Color.LightGray else StudioPrimary,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Medium
           )
         }
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Toggle Bounding Boxes button
+        // Toggle Bounding Boxes
         IconButton(
           onClick = { showBoundingBoxes = !showBoundingBoxes },
           modifier = Modifier
-            .size(36.dp)
+            .size(34.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.7f))
+            .background(Color.Black.copy(alpha = 0.75f))
             .testTag("btn_toggle_bounding_boxes")
         ) {
           Icon(
             Icons.Default.CropFree,
             contentDescription = "Pokaż ramki twarzy",
-            tint = if (showBoundingBoxes) StudioCyan else Color.LightGray,
-            modifier = Modifier.size(18.dp)
+            tint = if (showBoundingBoxes) StudioPrimary else Color.LightGray,
+            modifier = Modifier.size(17.dp)
           )
         }
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        // Hold / Click to peek original photo
+        // Przed / Po (Before / After Comparison)
         IconButton(
-          onClick = { showOriginal = !showOriginal },
+          onClick = { onToggleComparison(!showBeforeAfterComparison) },
           modifier = Modifier
-            .size(36.dp)
+            .size(34.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.7f))
+            .background(if (showBeforeAfterComparison) StudioSecondary else Color.Black.copy(alpha = 0.75f))
             .testTag("btn_toggle_original")
         ) {
           Icon(
-            if (showOriginal) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-            contentDescription = "Porównaj z oryginałem",
-            tint = if (showOriginal) StudioViolet else Color.LightGray,
-            modifier = Modifier.size(18.dp)
+            if (showBeforeAfterComparison) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+            contentDescription = "Porównaj Przed/Po",
+            tint = if (showBeforeAfterComparison) Color.White else Color.LightGray,
+            modifier = Modifier.size(17.dp)
+          )
+        }
+      }
+
+      // Floating "Przed / Po" badge when comparison is active
+      if (showBeforeAfterComparison) {
+        Box(
+          modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(bottom = 12.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(StudioSecondary.copy(alpha = 0.9f))
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+        ) {
+          Text(
+            text = "ORYGINAŁ (PRZED)",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp
           )
         }
       }

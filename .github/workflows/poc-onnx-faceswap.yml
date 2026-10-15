@@ -34,12 +34,14 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Install Android SDK tools
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android 37 and matching NDK
+      - name: Install Android 37 and matching NDK using runner SDK
         run: |
-          sdkmanager --install "platforms;android-37" "build-tools;37.0.0" "ndk;28.2.13676358"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-37" "build-tools;37.0.0" "ndk;28.2.13676358"
 
       - name: Fetch reviewed source at pinned commit
         run: |

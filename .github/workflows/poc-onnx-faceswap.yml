@@ -63,8 +63,14 @@ jobs:
           assert old in text, "Pinned upstream build file changed; review needed"
           text = text.replace(old, "compileSdk = 36", 1)
           path.write_text(text)
+          deps = Path("upstream/gradle/libs.versions.toml")
+          catalog = deps.read_text()
+          old_glide = 'glide = "5.0.9"'
+          assert old_glide in catalog, "Pinned Glide version changed; review needed"
+          deps.write_text(catalog.replace(old_glide, 'glide = "4.16.0"', 1))
           PY
           grep -q "compileSdk = 36" upstream/app/build.gradle.kts
+          grep -q 'glide = "4.16.0"' upstream/gradle/libs.versions.toml
 
       - name: Build debug APK from upstream source (models NOT bundled)
         working-directory: upstream
